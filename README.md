@@ -1,4 +1,4 @@
-# pokemon-showdown-AI
+# Pokemon-Neural-Network
 
 An attempt at creating a reinforcement learning agent that is able to participate in pokemon battles through a local pokemon showdown server ([instructions here](https://github.com/smogon/pokemon-showdown/blob/master/server/README.md)).
 
