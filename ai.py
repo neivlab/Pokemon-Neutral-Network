@@ -7,9 +7,8 @@ import random
 import math
 import poke_env
 from poke_env.player.player import Player
-from poke_env.environment.env import _EnvPlayer
+from poke_env.environment.env import _EnvPlayer,PokeEnv
 from poke_env.battle import Battle,AbstractBattle
-# from poke_env.environment.abstract_battle import AbstractBattle
 from collections import namedtuple
 
 import gymnasium as gym
@@ -61,16 +60,19 @@ class PokeAI(Player):
             server_configuration=poke_env.LocalhostServerConfiguration,# change if using a custom server
             # opponent=battleOpponent,
             # start_challenging=True,
-            battle_format="gen9randombattle"
-            # ,save_replays=replays
+            battle_format="gen9randombattle",
+            log_level=0
+            # ,save_replays = "battles"
             )
         self.action_space = Discrete(13)
         self.steps = 0
         self.last_battle = None
+        self.last_state = None
         self.qn = DQN(torch.tensor(len(self.describe_embedding().sample())),self.action_space.n).to(torch.device('cpu'))
         self.optimizer = optim.Adam(self.qn.parameters(),lr=LR)
         self.mem = Memory(1000)
         self.loss = []
+        self.rewards = {}
         
     def choose_move(self, battle:Battle):
 
@@ -78,7 +80,7 @@ class PokeAI(Player):
         state = self.embed_battle(battle)
         state = torch.tensor(state,dtype=torch.float32)
         
-        print(f'State: {state}')
+        # print(f'State: {state}')
 
         # choose move based on epsilon greedy policy
         sample = random.random()
@@ -97,17 +99,77 @@ class PokeAI(Player):
         
         else:
             action = self.action_space.sample()
+        #get chosen action
+    
+        # print(battle.valid_orders[0])
+        # print(action)
+        print(battle.active_pokemon)
+        print(len(battle.valid_orders))
+        if battle.force_switch:
+            print([i for i in battle.team.values() if not i.fainted])
         
-        
-        return action
+        if action not in range(len(battle.valid_orders)) and len(battle.valid_orders) != 0:
+        #if not enough options?
+            # print(f'uhh was {action}')
+            action = action % len(battle.valid_orders)
+            # print(f'is now {action}')
 
-    def calc_reward(self, last_battle, current_battle):
-        return self.reward_computing_helper(current_battle, fainted_value = 2.0,
-        hp_value = 0.2,
-        number_of_pokemons = 6,
-        starting_value = 0.0,
-        status_value = 0.4,
-        victory_value = 2.5)
+        reward = self.calc_reward(battle)
+        if self.last_state != None:
+            self.mem.push((self.last_state,state,action,reward))
+
+        self.last_state = state
+        # print(battle.team)
+        print(battle.valid_orders)
+
+        return battle.valid_orders[action]
+        
+    def calc_reward(self, battle:AbstractBattle):
+        fainted_value = 0.0
+        hp_value = 0.2
+        number_of_pokemons = 6
+        starting_value = 0.0
+        status_value = 0.4
+        victory_value = 2.5
+        #reinventing a wheel because i cant get the wheels to fit
+        if battle not in self.rewards.keys():
+            self.rewards[battle] = starting_value
+        
+        current_value = 0.0
+
+        for mon in battle.team.values():
+            current_value += mon.current_hp_fraction * hp_value
+            if mon.fainted:
+                current_value -= fainted_value
+            elif mon.status is not None:
+                current_value -= status_value
+
+        current_value += (number_of_pokemons - len(battle.team)) * hp_value
+
+        for mon in battle.opponent_team.values():
+            current_value -= mon.current_hp_fraction * hp_value
+            if mon.fainted:
+                current_value += fainted_value
+            elif mon.status is not None:
+                current_value += status_value
+
+        current_value -= (number_of_pokemons - len(battle.opponent_team)) * hp_value
+
+        if battle.won:
+            current_value += victory_value
+        elif battle.lost:
+            current_value -= victory_value
+        
+        self.rewards[battle] += current_value
+        # print(f'current: {current_value}')
+        # print(f'stored: {self.rewards.get(battle)}')
+        return current_value 
+        # return PokeEnv.reward_computing_helper(battle, fainted_value = 2.0,
+        # hp_value = 0.2,
+        # number_of_pokemons = 6,
+        # starting_value = 0.0,
+        # status_value = 0.4,
+        # victory_value = 2.5)
     
     def embed_battle(self, battle:AbstractBattle):
         bp = []
@@ -200,7 +262,13 @@ class PokeAI(Player):
         Box 4: current damage multiplier(0-4)
         '''
         return gym.spaces.flatten_space(gym.spaces.Tuple(
-            (Box(0,500,(4,),int),(Box(low = np.array([0,0,0,0,1,0,1,0]),high = np.array([6,6,1,1,20,20,20,20]),dtype =int)),(Box(0,1,(2,),dtype=float)),Box(0,4,(4,)))))
+            (Box(0,500,(4,),int),
+            (Box(
+                low = np.array([0,0,0,0,1,0,1,0]),
+                high = np.array([6,6,1,1,20,20,20,20]),
+                dtype =int)),
+            (Box(0,1,(1,),dtype=int)),
+            Box(0,4,(4,)))))
     
     def optimize(self, sample_size):
         #training function
@@ -243,12 +311,15 @@ class PokeAI(Player):
             loss = lossf.forward(pred,new_pred)
             loss.backward()       
             self.optimizer.step()
-        
             average_loss.append(loss.detach())
             l += 1
 
         self.loss.append(sum(average_loss)/len(average_loss))
     
+    def _battle_finished_callback(self, battle: AbstractBattle):
+        self.optimize(32)
+        print("learning")
+
     
 
 
