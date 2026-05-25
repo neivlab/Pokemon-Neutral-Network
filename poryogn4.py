@@ -11,7 +11,7 @@ import dotenv
 
 dotenv.load_dotenv()
 
-N_BATTLES = 10
+N_BATTLES = 1000
 x_battles= []
 
 async def main():
@@ -20,7 +20,8 @@ async def main():
     
     player = PokeAI(battleOpponent=opp,replays = False)
     #loads pre trained model data if exists
-    player.qn.load_state_dict(torch.load('INSERT MODEL HERE'))
+    if os.environ['MODEL']:
+        player.qn.load_state_dict(torch.load(os.environ['MODEL']))
     turn = 0
     battles = 0
     last_state = None

@@ -9,6 +9,7 @@ import poke_env
 from poke_env.player.player import Player
 from poke_env.environment.env import _EnvPlayer,PokeEnv
 from poke_env.battle import Battle,AbstractBattle
+from poke_env.data import GenData
 from collections import namedtuple
 
 import gymnasium as gym
@@ -103,24 +104,24 @@ class PokeAI(Player):
     
         # print(battle.valid_orders[0])
         # print(action)
-        print(battle.active_pokemon)
-        print(len(battle.valid_orders))
-        if battle.force_switch:
-            print([i for i in battle.team.values() if not i.fainted])
+        # print(battle.active_pokemon)
+        # print(len(battle.valid_orders))
+        # if battle.force_switch:
+        #     print([i for i in battle.team.values() if not i.fainted])
         
         if action not in range(len(battle.valid_orders)) and len(battle.valid_orders) != 0:
-        #if not enough options?
-            # print(f'uhh was {action}')
+        #if not enough options? -> modulo the action by the number of availble choices
+            
             action = action % len(battle.valid_orders)
-            # print(f'is now {action}')
+            
 
         reward = self.calc_reward(battle)
         if self.last_state != None:
             self.mem.push((self.last_state,state,action,reward))
 
         self.last_state = state
-        # print(battle.team)
-        print(battle.valid_orders)
+        
+        # print(battle.valid_orders)
 
         return battle.valid_orders[action]
         
@@ -179,12 +180,11 @@ class PokeAI(Player):
         
         for i,move in enumerate(moves):
             bp.append(move.base_power)
-            
-            
+
             multiplier.append(move.type.damage_multiplier(
                 battle.opponent_active_pokemon.type_1,
                 battle.opponent_active_pokemon.type_2,
-                type_chart= battle._data.type_chart
+                type_chart= GenData.from_gen(battle.gen).type_chart
             ))
 
         team = len(battle.team) - len([i for i in battle.team.values() if i.fainted]) 
@@ -318,7 +318,7 @@ class PokeAI(Player):
     
     def _battle_finished_callback(self, battle: AbstractBattle):
         self.optimize(32)
-        print("learning")
+        print("Adapting...")
 
     
 
